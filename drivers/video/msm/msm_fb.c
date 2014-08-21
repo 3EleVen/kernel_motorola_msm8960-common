@@ -1879,6 +1879,8 @@ int msm_fb_signal_timeline(struct msm_fb_data_type *mfd)
 		sw_sync_timeline_inc(mfd->timeline, 1);
 		mfd->timeline_value++;
 	}
+	mfd->last_rel_fence = mfd->cur_rel_fence;
+	mfd->cur_rel_fence = 0;
 	if (atomic_read(&mfd->commit_cnt) > 0)
 		atomic_dec(&mfd->commit_cnt);
 	mfd->last_rel_fence = mfd->cur_rel_fence;
@@ -3796,25 +3798,27 @@ static int msmfb_handle_buf_sync_ioctl(struct msm_fb_data_type *mfd,
 	else
 		threshold = 2;
 	mfd->cur_rel_sync_pt = sw_sync_pt_create(mfd->timeline,
-			mfd->timeline_value + threshold);
+			mfd->timeline_value + threshold +
+			atomic_read(&mfd->commit_cnt));
 	if (mfd->cur_rel_sync_pt == NULL) {
 		pr_err("%s: cannot create sync point", __func__);
 		ret = -ENOMEM;
 		goto buf_sync_err_1;
 	}
 	/* create fence */
-	mfd->cur_rel_fence = sync_fence_create("mdp-fence",
-			mfd->cur_rel_sync_pt);
+
+ 	mfd->cur_rel_fence = sync_fence_create("mdp-fence",
+ 			mfd->cur_rel_sync_pt);
 	if (mfd->cur_rel_fence == NULL) {
 		sync_pt_free(mfd->cur_rel_sync_pt);
-		mfd->cur_rel_sync_pt = NULL;
+ 		mfd->cur_rel_sync_pt = NULL;
 		pr_err("%s: cannot create fence", __func__);
-		ret = -ENOMEM;
-		goto buf_sync_err_1;
-	}
-	/* create fd */
-	mfd->cur_rel_fen_fd = get_unused_fd_flags(0);
-	if (mfd->cur_rel_fen_fd < 0) {
+ 		ret = -ENOMEM;
+ 		goto buf_sync_err_1;
+ 	}
+ 	/* create fd */
+ 	mfd->cur_rel_fen_fd = get_unused_fd_flags(0);
+ 	if (mfd->cur_rel_fen_fd < 0) {
 		pr_err("%s: get_unused_fd_flags failed", __func__);
 		ret  = -EIO;
 		goto buf_sync_err_2;
@@ -3826,6 +3830,7 @@ static int msmfb_handle_buf_sync_ioctl(struct msm_fb_data_type *mfd,
 		pr_err("%s:copy_to_user failed", __func__);
 		goto buf_sync_err_3;
 	}
+
 	mutex_unlock(&mfd->sync_mutex);
 	return ret;
 buf_sync_err_3:
